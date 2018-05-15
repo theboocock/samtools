@@ -1,0 +1,38 @@
+From fe004c63795e2a2186dee56ba375530f63b2c8da Mon Sep 17 00:00:00 2001
+From: James Booocock <theboocock@bkb.genetics.ucla.edu>
+Date: Mon, 14 May 2018 19:33:18 -0700
+Subject: [PATCH] Fixed bam sort to work with tags that go missing
+
+---
+ bam_sort.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/bam_sort.c b/bam_sort.c
+index 146787f..4483745 100644
+--- a/bam_sort.c
++++ b/bam_sort.c
+@@ -2128,6 +2128,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const
+     uint8_t *bam_mem = NULL;
+     char **fns = NULL;
+     const char *new_so;
++    const uint8_t * tag;
+     buf_region *in_mem = NULL;
+     int num_in_mem = 0;
+ 
+@@ -2189,7 +2190,12 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const
+     k = max_k = bam_mem_offset = 0;
+     while ((res = sam_read1(fp, header, b)) >= 0) {
+         int mem_full = 0;
+-
++           if (g_is_by_tag){
++            tag = bam_aux_get(b, g_sort_tag);
++            if (tag == 0){
++               continue;
++            }    
++        }    
+         if (k == max_k) {
+             bam1_tag *new_buf;
+             max_k = max_k? max_k<<1 : 0x10000;
+-- 
+2.7.4
+
