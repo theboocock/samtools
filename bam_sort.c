@@ -2128,6 +2128,7 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     uint8_t *bam_mem = NULL;
     char **fns = NULL;
     const char *new_so;
+    const uint8_t * tag;
     buf_region *in_mem = NULL;
     int num_in_mem = 0;
 
@@ -2189,7 +2190,12 @@ int bam_sort_core_ext(int is_by_qname, char* sort_by_tag, const char *fn, const 
     k = max_k = bam_mem_offset = 0;
     while ((res = sam_read1(fp, header, b)) >= 0) {
         int mem_full = 0;
-
+           if (g_is_by_tag){
+            tag = bam_aux_get(b, g_sort_tag);
+            if (tag == 0){
+               continue;
+            }    
+        }    
         if (k == max_k) {
             bam1_tag *new_buf;
             max_k = max_k? max_k<<1 : 0x10000;
