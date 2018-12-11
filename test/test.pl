@@ -66,7 +66,8 @@ test_addrprg($opts, threads=>2);
 test_markdup($opts);
 test_markdup($opts, threads=>2);
 test_bedcov($opts);
-
+test_split($opts);
+test_split($opts, threads=>2);
 
 print "\nNumber of tests:\n";
 printf "    total            .. %d\n", $$opts{nok}+$$opts{nfailed}+$$opts{nxfail}+$$opts{nxpass};
@@ -210,6 +211,7 @@ sub cmd
 #       want_fail=> consider passed() if cmd() returns non-zero
 #       out_map => map output filenames to their expected result file (can be used alongside out)
 #       hskip => number of header lines to ignore during diff
+#       ignore_pg_header => remove @PG header lines
 sub test_cmd
 {
     my ($opts,%args) = @_;
@@ -269,6 +271,11 @@ sub test_cmd
         close($fh);
     }
     elsif ( !$$opts{redo_outputs} ) { failed($opts,%args,msg=>$test,reason=>"$$opts{path}/$args{out}: $!"); return; }
+
+    if ($args{ignore_pg_header}) {
+	$out =~ s/(^|\n)\@PG\t[^\n]*\n/$1/sg;
+	$exp =~ s/(^|\n)\@PG\t[^\n]*\n/$1/sg;
+    }
 
     if ( $exp ne $out )
     {
@@ -352,6 +359,11 @@ sub test_cmd
                 close($fh);
             }
             elsif ( !$$opts{redo_outputs} ) { failed($opts,%args,msg=>$test,reason=>"$$opts{path}/$out_actual: $!"); return; }
+
+	    if ($args{ignore_pg_header}) {
+		$out =~ s/(^|\n)\@PG\t[^\n]*\n/$1/sg;
+		$exp =~ s/(^|\n)\@PG\t[^\n]*\n/$1/sg;
+	    }
 
             if ( $exp ne $out )
             {
@@ -799,6 +811,7 @@ sub test_mpileup
     # test that filter mask replaces (not just adds to) default mask
     test_cmd($opts,out=>'dat/mpileup.out.3',cmd=>"$$opts{bin}/samtools mpileup -B --ff 0x14 -f $$opts{tmp}/mpileup.ref.fa.gz -r17:1050-1060 $$opts{tmp}/mpileup.1.bam | grep -v mpileup");
     test_cmd($opts,out=>'dat/mpileup.out.3',cmd=>"$$opts{bin}/samtools mpileup -B --ff 0x14 -f $$opts{tmp}/mpileup.ref.fa.gz -r17:1050-1060 $$opts{tmp}/mpileup.1.cram | grep -v mpileup");
+    test_cmd($opts,out=>'dat/mpileup.out.5',cmd=>"$$opts{bin}/samtools mpileup $$opts{path}/mpileup/overlap.bam | grep 128814202");
 }
 
 sub test_usage
@@ -2614,6 +2627,11 @@ sub test_stats
     test_cmd($opts,out=>'stat/12.3reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_3reads.bed | tail -n+4", exp_fix=>$efix);
     test_cmd($opts,out=>'stat/12.2reads.overlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);
     test_cmd($opts,out=>'stat/12.2reads.nooverlap.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/12_overlaps.bam -p -t $$opts{path}/stat/12_2reads.bed | tail -n+4", exp_fix=>$efix);
+    test_cmd($opts,out=>'stat/13.barcodes.bc.ok.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/13_barcodes_ok.sam | tail -n+4", exp_fix=>$efix);
+    test_cmd($opts,out=>'stat/13.barcodes.ox.ok.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/13_barcodes_ok_ox_bz.sam | tail -n+4", exp_fix=>$efix);
+    test_cmd($opts,out=>'stat/13.barcodes.fail.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/13_barcodes_fail_bc_length.sam | tail -n+4", expect_fail=>1, exp_fix=>$efix);
+    test_cmd($opts,out=>'stat/13.barcodes.fail.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/13_barcodes_fail_hyphen.sam | tail -n+4", expect_fail=>1, exp_fix=>$efix);
+    test_cmd($opts,out=>'stat/13.barcodes.fail.expected',cmd=>"$$opts{bin}/samtools stats $$opts{path}/stat/13_barcodes_fail_qt_length.sam | tail -n+4", expect_fail=>1, exp_fix=>$efix);
 }
 
 sub test_merge
@@ -2778,6 +2796,7 @@ sub test_quickcheck
         'quickcheck/7.quickcheck.cram30.ok.cram',
         'quickcheck/8.quickcheck.cram21.truncated.cram',
         'quickcheck/9.quickcheck.cram30.truncated.cram',
+        'quickcheck/10.quickcheck.notargets.bam',
         );
 
     my $all_testfiles;
@@ -2791,6 +2810,9 @@ sub test_quickcheck
 
     test_cmd($opts, out => 'quickcheck/all.expected', want_fail => 1,
         cmd => "$$opts{bin}/samtools quickcheck -v $all_testfiles | sed 's,.*/quickcheck/,,'");
+
+    test_cmd($opts, out => 'dat/empty.expected', want_fail => 0,
+        cmd => "$$opts{bin}/samtools quickcheck -uv $$opts{path}/quickcheck/10.quickcheck.notargets.bam | sed 's,.*/quickcheck/,,'");
 }
 
 sub test_reheader
@@ -2876,3 +2898,19 @@ sub test_bedcov
     test_cmd($opts,out=>'bedcov/bedcov_j.expected',cmd=>"$$opts{bin}/samtools bedcov -j $$opts{path}/bedcov/bedcov.bed $$opts{path}/bedcov/bedcov.bam");
 }
 
+sub test_split
+{
+    my ($opts, %args) = @_;
+
+    my $threads = exists($args{threads}) ? " -@ $args{threads}" : "";
+
+    test_cmd($opts,
+	     out=>"dat/empty.expected",
+	     out_map => {
+		 'split/split.tmp.grp1.sam' => 'split/split.expected.grp1.sam',
+		 'split/split.tmp.grp2.sam' => 'split/split.expected.grp2.sam',
+		 'split/split.tmp.unk.sam' => 'split/split.expected.unk.sam',
+	     },
+	     ignore_pg_header => 1,
+	     cmd => "$$opts{bin}/samtools split $threads --output-fmt sam -u $$opts{path}/split/split.tmp.unk.sam -f $$opts{path}/split/split.tmp.\%!.\%. $$opts{path}/split/split.sam");
+}

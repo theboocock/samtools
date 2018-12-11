@@ -49,16 +49,18 @@ int bam_reheader(BGZF *in, bam_hdr_t *h, int fd,
     ssize_t len;
     uint8_t *buf = NULL;
     SAM_hdr *sh = NULL;
+    bam_hdr_t *tmp;
     if (in->is_write) return -1;
     buf = malloc(BUF_SIZE);
     if (!buf) {
         fprintf(stderr, "Out of memory\n");
         return -1;
     }
-    if (bam_hdr_read(in) == NULL) {
+    if ((tmp = bam_hdr_read(in)) == NULL) {
         fprintf(stderr, "Couldn't read header\n");
         goto fail;
     }
+    bam_hdr_destroy(tmp);
     fp = bgzf_fdopen(fd, "w");
     if (!fp) {
         print_error_errno("reheader", "Couldn't open output file");
@@ -437,11 +439,11 @@ int cram_reheader_inplace(cram_fd *fd, const bam_hdr_t *h, const char *arg_list,
 static void usage(FILE *fp, int ret) {
     fprintf(fp,
            "Usage: samtools reheader [-P] in.header.sam in.bam > out.bam\n"
-           "   or  samtools reheader [-P] -i in.header.sam file.bam\n"
+           "   or  samtools reheader [-P] -i in.header.sam file.cram\n"
            "\n"
            "Options:\n"
            "    -P, --no-PG      Do not generate an @PG header line.\n"
-           "    -i, --in-place   Modify the bam/cram file directly.\n"
+           "    -i, --in-place   Modify the CRAM file directly, if possible.\n"
            "                     (Defaults to outputting to stdout.)\n");
     exit(ret);
 }
@@ -494,12 +496,20 @@ int main_reheader(int argc, char *argv[])
         return 1;
     }
     if (hts_get_format(in)->format == bam) {
-        r = bam_reheader(in->fp.bgzf, h, fileno(stdout), arg_list, add_PG);
-    } else {
+        if (inplace) {
+            print_error("reheader", "cannot reheader BAM '%s' in-place", argv[optind+1]);
+            r = -1;
+        } else {
+            r = bam_reheader(in->fp.bgzf, h, fileno(stdout), arg_list, add_PG);
+        }
+    } else if (hts_get_format(in)->format == cram) {
         if (inplace)
             r = cram_reheader_inplace(in->fp.cram, h, arg_list, add_PG);
         else
             r = cram_reheader(in->fp.cram, h, arg_list, add_PG);
+    } else {
+        print_error("reheader", "input file '%s' must be BAM or CRAM", argv[optind+1]);
+        r = -1;
     }
 
     if (sam_close(in) != 0)
